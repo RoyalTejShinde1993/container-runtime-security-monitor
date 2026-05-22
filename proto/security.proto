@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package security;
+
+service RuntimeSecurity {
+  rpc StreamEvents(SecurityEvent) returns (Ack);
+}
+
+message SecurityEvent {
+  uint32 pid = 1;
+  uint32 uid = 2;
+  string process = 3;
+  string container_id = 4;
+  string alert = 5;
+}
+
+message Ack {
+  bool success = 1;
+}
