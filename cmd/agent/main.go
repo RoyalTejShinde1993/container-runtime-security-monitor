@@ -17,13 +17,18 @@ import (
 )
 
 type Event struct {
-	Pid  uint32
-	Tgid uint32
-	Uid  uint32
-	Comm [16]byte
+	Pid      uint32
+	Uid      uint32
+	Comm     [16]byte
+	Filename [64]byte
+	Alert    [32]byte
 }
 
 func main() {
+
+	// =========================================================
+	// LOAD eBPF OBJECT
+	// =========================================================
 
 	spec, err := ebpf.LoadCollectionSpec("ebpf/monitor.bpf.o")
 	if err != nil {
@@ -39,6 +44,10 @@ func main() {
 		log.Fatalf("loading objects: %v", err)
 	}
 
+	// =========================================================
+	// ATTACH TRACEPOINT
+	// =========================================================
+
 	tp, err := link.Tracepoint(
 		"syscalls",
 		"sys_enter_execve",
@@ -50,6 +59,10 @@ func main() {
 	}
 	defer tp.Close()
 
+	// =========================================================
+	// OPEN RING BUFFER
+	// =========================================================
+
 	reader, err := ringbuf.NewReader(objs.Events)
 	if err != nil {
 		log.Fatalf("opening ringbuf: %v", err)
@@ -57,6 +70,10 @@ func main() {
 	defer reader.Close()
 
 	fmt.Println("[+] container-runtime-security-monitor started")
+
+	// =========================================================
+	// HANDLE CTRL+C
+	// =========================================================
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt)
@@ -67,6 +84,10 @@ func main() {
 		reader.Close()
 		os.Exit(0)
 	}()
+
+	// =========================================================
+	// EVENT LOOP
+	// =========================================================
 
 	for {
 		record, err := reader.Read()
@@ -82,22 +103,39 @@ func main() {
 			binary.LittleEndian,
 			&event,
 		); err != nil {
+			log.Printf("parsing event: %v", err)
 			continue
 		}
 
+		// Convert byte arrays to strings
 		comm := string(bytes.Trim(event.Comm[:], "\x00"))
+		filename := string(bytes.Trim(event.Filename[:], "\x00"))
+		kernelAlert := string(bytes.Trim(event.Alert[:], "\x00"))
 
-		containerID := container.ResolveContainer(event.Tgid)
+		// Resolve container info
+		containerID := container.ResolveContainer(event.Pid)
 
-		alert := policy.Evaluate(comm)
+		// Optional policy engine
+		policyAlert := policy.Evaluate(comm)
+
+		finalAlert := kernelAlert
+
+		if policyAlert != "" && policyAlert != "normal" {
+			finalAlert = policyAlert
+		}
+
+		// =====================================================
+		// PRINT EVENT
+		// =====================================================
 
 		fmt.Printf(
-			"[EVENT] pid=%d uid=%d container=%s process=%s alert=%s\n",
+			"[EVENT] pid=%d uid=%d container=%s process=%s file=%s alert=%s\n",
 			event.Pid,
 			event.Uid,
 			containerID,
 			comm,
-			alert,
+			filename,
+			finalAlert,
 		)
 	}
 }

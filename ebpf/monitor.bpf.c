@@ -31,6 +31,10 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx)
     if (!evt)
         return 0;
 
+    // =========================================================
+    // PROCESS INFORMATION
+    // =========================================================
+
     evt->pid = bpf_get_current_pid_tgid() >> 32;
     evt->uid = bpf_get_current_uid_gid();
 
@@ -42,46 +46,79 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx)
         filename
     );
 
-    // FILTER NOISE
-    if (__builtin_memcmp(evt->comm, "sh", 2) == 0) {
+    // =========================================================
+    // FILTER RUNTIME / DEVCONTAINER NOISE
+    // =========================================================
+
+    if (
+    __builtin_memcmp(evt->comm, "sh", 2) == 0 ||
+    __builtin_memcmp(evt->comm, "node", 4) == 0 ||
+    __builtin_memcmp(evt->comm, "sleep", 5) == 0 ||
+    __builtin_memcmp(evt->comm, "grep", 4) == 0 ||
+    __builtin_memcmp(evt->comm, "ls", 2) == 0 ||
+    __builtin_memcmp(evt->comm, "which", 5) == 0 ||
+    __builtin_memcmp(evt->comm, "ps", 2) == 0 ||
+    __builtin_memcmp(evt->comm, "top", 3) == 0 ||
+    __builtin_memcmp(evt->comm, "cat", 3) == 0 ||
+    __builtin_memcmp(evt->comm, "runc", 4) == 0 ||
+    __builtin_memcmp(evt->comm, "containerd-sh", 13) == 0 ||
+    __builtin_memcmp(evt->comm, ".NET TP Worker", 14) == 0 ||
+    __builtin_memcmp(evt->comm, "cpuUsage.sh", 11) == 0 ||
+    __builtin_memcmp(evt->comm, "auoms", 5) == 0 ||
+    __builtin_memcmp(evt->comm, "apt-get", 7) == 0 ||
+    __builtin_memcmp(evt->comm, "dpkg", 4) == 0 ||
+    __builtin_memcmp(evt->comm, "packagekitd", 11) == 0 ||
+    __builtin_memcmp(evt->comm, "cnf-update-db", 13) == 0 ||
+    __builtin_memcmp(evt->comm, "(kagekitd)", 10) == 0 ||
+    __builtin_memcmp(evt->comm, "(polkitd)", 9) == 0
+    ) {
+
         bpf_ringbuf_discard(evt, 0);
         return 0;
     }
 
-    if (__builtin_memcmp(evt->comm, "cpuUsage.sh", 11) == 0) {
-        bpf_ringbuf_discard(evt, 0);
-        return 0;
-    }
+    // =========================================================
+    // SECURITY DETECTIONS
+    // =========================================================
 
-    if (__builtin_memcmp(evt->comm, ".NET TP Worker", 14) == 0) {
-        bpf_ringbuf_discard(evt, 0);
-        return 0;
-    }
+    // Shell execution detection
+    if (
+        __builtin_memcmp(evt->filename, "/bin/sh", 7) == 0 ||
+        __builtin_memcmp(evt->filename, "/bin/bash", 10) == 0
+       ) {
 
-    // DETECTIONS
+        __builtin_memcpy(
+            evt->alert,
+            "shell_execution",
+            16
+        );
 
-    if (__builtin_memcmp(evt->comm, "nc", 2) == 0) {
-        __builtin_memcpy(evt->alert,
-                         "reverse_shell_detected",
-                         23);
+    // Network tool execution detection
+    } else if (
+        __builtin_memcmp(evt->comm, "curl", 4) == 0 ||
+        __builtin_memcmp(evt->comm, "wget", 4) == 0 ||
+        __builtin_memcmp(evt->comm, "nc", 2) == 0
+    ) {
 
-    } else if (__builtin_memcmp(evt->comm, "bash", 4) == 0) {
-        __builtin_memcpy(evt->alert,
-                         "shell_execution",
-                         16);
+        __builtin_memcpy(
+            evt->alert,
+            "network_tool_execution",
+            25
+        );
 
-    } else if (__builtin_memcmp(evt->comm, "curl", 4) == 0) {
-        __builtin_memcpy(evt->alert,
-                         "network_tool_execution",
-                         23);
-
+    // Default
     } else {
-        __builtin_memcpy(evt->alert,
-                         "normal",
-                         7);
+
+        __builtin_memcpy(
+            evt->alert,
+            "normal",
+            7
+        );
     }
 
+    // Submit event
     bpf_ringbuf_submit(evt, 0);
 
     return 0;
 }
+
