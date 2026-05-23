@@ -11,6 +11,7 @@ struct event {
     u32 pid;
     u32 uid;
     char comm[16];
+    char filename[64];
     char alert[32];
 };
 
@@ -24,6 +25,8 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx)
 {
     struct event *evt;
 
+    const char *filename = (const char *)ctx->args[0];
+
     evt = bpf_ringbuf_reserve(&events, sizeof(*evt), 0);
     if (!evt)
         return 0;
@@ -33,23 +36,49 @@ int trace_execve(struct trace_event_raw_sys_enter *ctx)
 
     bpf_get_current_comm(&evt->comm, sizeof(evt->comm));
 
-    // FILTER NOISY PROCESSES
-    if (__builtin_memcmp(evt->comm, "sage.sh", 7) == 0)
-        return 0;
+    bpf_probe_read_user_str(
+        evt->filename,
+        sizeof(evt->filename),
+        filename
+    );
 
-    if (__builtin_memcmp(evt->comm, "node", 4) == 0)
+    // FILTER NOISE
+    if (__builtin_memcmp(evt->comm, "sh", 2) == 0) {
+        bpf_ringbuf_discard(evt, 0);
         return 0;
+    }
 
-    if (__builtin_memcmp(evt->comm, "TP Worker", 9) == 0)
+    if (__builtin_memcmp(evt->comm, "cpuUsage.sh", 11) == 0) {
+        bpf_ringbuf_discard(evt, 0);
         return 0;
+    }
 
-    // Detect suspicious commands
+    if (__builtin_memcmp(evt->comm, ".NET TP Worker", 14) == 0) {
+        bpf_ringbuf_discard(evt, 0);
+        return 0;
+    }
+
+    // DETECTIONS
+
     if (__builtin_memcmp(evt->comm, "nc", 2) == 0) {
-        __builtin_memcpy(evt->alert, "reverse_shell_detected", 23);
+        __builtin_memcpy(evt->alert,
+                         "reverse_shell_detected",
+                         23);
+
     } else if (__builtin_memcmp(evt->comm, "bash", 4) == 0) {
-        __builtin_memcpy(evt->alert, "shell_execution", 16);
+        __builtin_memcpy(evt->alert,
+                         "shell_execution",
+                         16);
+
+    } else if (__builtin_memcmp(evt->comm, "curl", 4) == 0) {
+        __builtin_memcpy(evt->alert,
+                         "network_tool_execution",
+                         23);
+
     } else {
-        __builtin_memcpy(evt->alert, "normal", 7);
+        __builtin_memcpy(evt->alert,
+                         "normal",
+                         7);
     }
 
     bpf_ringbuf_submit(evt, 0);
