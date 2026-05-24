@@ -1,2 +1,12 @@
+build/
+dist/
+out/
+
 *.o
-runtime-agent
+*.so
+*.a
+*.log
+
+CMakeCache.txt
+cmake_install.cmake
+Makefile
