@@ -1,0 +1,22 @@
+# Ignore build artifacts
+build/** linguist-vendored
+dist/** linguist-vendored
+out/** linguist-vendored
+
+# Ignore generated files
+*.o linguist-generated
+*.a linguist-generated
+*.so linguist-generated
+*.log linguist-generated
+
+# Ignore CMake generated files
+CMakeFiles/** linguist-generated
+CMakeCache.txt linguist-generated
+cmake_install.cmake linguist-generated
+Makefile linguist-generated
+
+# Prefer C++
+*.cpp linguist-detectable=true
+*.hpp linguist-detectable=true
+*.cc linguist-detectable=true
+*.cxx linguist-detectable=true
